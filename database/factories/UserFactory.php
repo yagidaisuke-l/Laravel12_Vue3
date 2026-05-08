@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
+// PHP 8.2 ではネームスペース内から global helper が解決されないことがある
+use function fake;
+
 /**
  * @extends Factory<User>
  */
