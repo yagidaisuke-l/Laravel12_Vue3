@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRanksStore, type Rank } from '@/stores/ranks'
 
 const store = useRanksStore()
+
+onMounted(() => store.fetchAll())
 
 const COLORS = [
   { label: 'グレー',   value: 'bg-gray-400' },
@@ -30,10 +32,10 @@ function openEdit(r: Rank) {
   form.value = { name: r.name, designationFee: r.designationFee, color: r.color }
   showModal.value = true
 }
-function save() {
+async function save() {
   if (!form.value.name) return
-  if (modalMode.value === 'add') store.add(form.value.name, form.value.designationFee, form.value.color)
-  else if (editingId.value !== null) store.update(editingId.value, form.value.name, form.value.designationFee, form.value.color)
+  if (modalMode.value === 'add') await store.add(form.value.name, form.value.designationFee, form.value.color)
+  else if (editingId.value !== null) await store.update(editingId.value, form.value.name, form.value.designationFee, form.value.color)
   showModal.value = false
 }
 </script>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useShiftsStore, type Shift, type ShiftStatus, ABSENT_REASONS } from '@/stores/shifts'
 import { useCastsStore } from '@/stores/casts'
 import { useRanksStore } from '@/stores/ranks'
@@ -37,6 +37,27 @@ function navigate(dir: number) {
   baseDate.value = d
 }
 function goToday() { baseDate.value = new Date() }
+
+async function refreshRange() {
+  if (viewMode.value === 'today') {
+    await shiftsStore.fetchDate(fmt(baseDate.value))
+  } else if (viewMode.value === 'week') {
+    await shiftsStore.fetchRange(fmt(weekDays.value[0]), fmt(weekDays.value[6]))
+  } else {
+    const y = baseDate.value.getFullYear()
+    const m = String(baseDate.value.getMonth() + 1).padStart(2, '0')
+    const last = new Date(y, baseDate.value.getMonth() + 1, 0).getDate()
+    await shiftsStore.fetchRange(`${y}-${m}-01`, `${y}-${m}-${String(last).padStart(2, '0')}`)
+  }
+}
+
+onMounted(() => {
+  castsStore.fetchAll()
+  ranksStore.fetchAll()
+  refreshRange()
+})
+
+watch([baseDate, viewMode], refreshRange)
 
 // ─── ヘッダー表示 ────────────────────────────────────────
 const headerLabel = computed(() => {
@@ -137,26 +158,25 @@ function openEdit(shift: Shift) {
   showModal.value = true
 }
 
-function saveModal() {
+async function saveModal() {
   if (!modalForm.value.castId || !modalForm.value.date || !modalForm.value.startTime || !modalForm.value.endTime) return
   if (editingShiftId.value !== null) {
-    shiftsStore.update(editingShiftId.value, { ...modalForm.value })
+    await shiftsStore.update(editingShiftId.value, { ...modalForm.value })
   } else {
-    // 同じキャスト・日付が既存なら上書き確認
     const existing = shiftsStore.getByCastAndDate(modalForm.value.castId, modalForm.value.date)
     if (existing) {
       if (!confirm('この日のシフトは既に登録されています。上書きしますか？')) return
-      shiftsStore.update(existing.id, { ...modalForm.value })
+      await shiftsStore.update(existing.id, { ...modalForm.value })
     } else {
-      shiftsStore.add({ ...modalForm.value })
+      await shiftsStore.add({ ...modalForm.value })
     }
   }
   showModal.value = false
 }
 
-function deleteShift() {
+async function deleteShift() {
   if (editingShiftId.value !== null && confirm('このシフトを削除しますか？')) {
-    shiftsStore.remove(editingShiftId.value)
+    await shiftsStore.remove(editingShiftId.value)
     showModal.value = false
   }
 }
@@ -184,13 +204,13 @@ function openAbsentModal(shiftId: number) {
   showAbsentModal.value = true
 }
 
-function saveAbsent() {
+async function saveAbsent() {
   const s = shiftsStore.shifts.find(s => s.id === absentShiftId.value)
   if (!s) return
   if (absentFromHere.value) {
-    shiftsStore.markAbsentFromDate(s.castId, s.date, absentReason.value, absentNote.value)
+    await shiftsStore.markAbsentFromDate(s.castId, s.date, absentReason.value, absentNote.value)
   } else {
-    shiftsStore.markAbsent(s.id, absentReason.value, absentNote.value)
+    await shiftsStore.markAbsent(s.id, absentReason.value, absentNote.value)
   }
   showAbsentModal.value = false
 }
@@ -204,15 +224,15 @@ const absentFromHereCount = computed(() => {
   ).length
 })
 
-function undoAbsent(shiftId: number) {
-  shiftsStore.cancelAbsent(shiftId)
+async function undoAbsent(shiftId: number) {
+  await shiftsStore.cancelAbsent(shiftId)
 }
 
-function undoAbsentFromDate(shiftId: number) {
+async function undoAbsentFromDate(shiftId: number) {
   const s = shiftsStore.shifts.find(s => s.id === shiftId)
   if (!s) return
   if (confirm(`${absentTargetCast.value?.name} の ${s.date} 以降の欠勤をすべて出勤予定に戻しますか？`)) {
-    shiftsStore.cancelAbsentFromDate(s.castId, s.date)
+    await shiftsStore.cancelAbsentFromDate(s.castId, s.date)
   }
 }
 
@@ -291,21 +311,13 @@ const bulkConflictCount = computed(() =>
   ).length
 )
 
-function saveBulk() {
-  const { castId, startTime, endTime, note, overwrite } = bulkForm.value
+async function saveBulk() {
+  const { castId, startDate, endDate, dows, startTime, endTime, overwrite, note } = bulkForm.value
   if (!castId || !startTime || !endTime) return
-  let added = 0, skipped = 0
-  for (const date of bulkPreviewDates.value) {
-    const existing = shiftsStore.getByCastAndDate(castId, date)
-    if (existing) {
-      if (overwrite) { shiftsStore.update(existing.id, { castId, date, startTime, endTime, note }); added++ }
-      else skipped++
-    } else {
-      shiftsStore.add({ castId, date, startTime, endTime, note }); added++
-    }
-  }
+  const registered = await shiftsStore.bulkAdd({ castId, startDate, endDate, dows, startTime, endTime, overwrite, note })
   showBulkModal.value = false
-  alert(`${added}件登録しました。${skipped > 0 ? `（${skipped}件スキップ）` : ''}`)
+  alert(`${registered}件登録しました。`)
+  await refreshRange()
 }
 
 // ─── ユーティリティ ───────────────────────────────────────

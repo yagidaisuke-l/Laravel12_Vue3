@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import api from '@/api'
 
 export type ShiftStatus = '出勤予定' | '体調不良' | '無断欠勤' | 'その他欠勤'
 
@@ -16,32 +17,36 @@ export interface Shift {
   note: string
 }
 
-function today(offset = 0): string {
-  const d = new Date()
-  d.setDate(d.getDate() + offset)
-  return d.toISOString().slice(0, 10)
+function toShift(s: any): Shift {
+  return {
+    id:         s.id,
+    castId:     s.cast_id,
+    date:       s.date,
+    startTime:  s.start_time,
+    endTime:    s.end_time,
+    status:     s.status,
+    absentNote: s.absent_note ?? '',
+    note:       s.note ?? '',
+  }
 }
 
 export const useShiftsStore = defineStore('shifts', () => {
-  const shifts = ref<Shift[]>([
-    { id: 1,  castId: 1, date: today(0),  startTime: '18:00', endTime: '24:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 2,  castId: 2, date: today(0),  startTime: '19:00', endTime: '25:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 3,  castId: 5, date: today(0),  startTime: '20:00', endTime: '26:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 4,  castId: 1, date: today(1),  startTime: '18:00', endTime: '24:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 5,  castId: 3, date: today(1),  startTime: '17:00', endTime: '23:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 6,  castId: 4, date: today(1),  startTime: '20:00', endTime: '26:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 7,  castId: 2, date: today(2),  startTime: '18:00', endTime: '24:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 8,  castId: 5, date: today(2),  startTime: '19:00', endTime: '25:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 9,  castId: 1, date: today(-1), startTime: '18:00', endTime: '24:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 10, castId: 3, date: today(-1), startTime: '19:00', endTime: '25:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 11, castId: 2, date: today(3),  startTime: '17:00', endTime: '23:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 12, castId: 4, date: today(3),  startTime: '20:00', endTime: '26:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 13, castId: 5, date: today(-2), startTime: '18:00', endTime: '24:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 14, castId: 1, date: today(4),  startTime: '19:00', endTime: '25:00', status: '出勤予定', absentNote: '', note: '' },
-    { id: 15, castId: 3, date: today(4),  startTime: '20:00', endTime: '26:00', status: '出勤予定', absentNote: '', note: '' },
-  ])
+  const shifts = ref<Shift[]>([])
 
-  let nextId = 16
+  async function fetchRange(from: string, to: string) {
+    const res = await api.get('/shifts', { params: { from, to } })
+    const fetched: Shift[] = res.data.map(toShift)
+    shifts.value = [
+      ...shifts.value.filter(s => s.date < from || s.date > to),
+      ...fetched,
+    ]
+  }
+
+  async function fetchDate(date: string) {
+    const res = await api.get('/shifts', { params: { date } })
+    const fetched: Shift[] = res.data.map(toShift)
+    shifts.value = [...shifts.value.filter(s => s.date !== date), ...fetched]
+  }
 
   function getByDate(date: string): Shift[] {
     return shifts.value.filter(s => s.date === date)
@@ -51,54 +56,95 @@ export const useShiftsStore = defineStore('shifts', () => {
     return shifts.value.find(s => s.castId === castId && s.date === date)
   }
 
-  // 出勤予定のキャストIDのみ返す（欠勤除外）
   function getCastIdsByDate(date: string): number[] {
     return shifts.value
       .filter(s => s.date === date && s.status === '出勤予定')
       .map(s => s.castId)
   }
 
-  // 欠勤含む全シフトのキャストID
   function getAllCastIdsByDate(date: string): number[] {
     return shifts.value.filter(s => s.date === date).map(s => s.castId)
   }
 
-  function add(data: Omit<Shift, 'id'>) {
-    shifts.value.push({ id: nextId++, ...data })
+  async function add(data: { castId: number; date: string; startTime: string; endTime: string; note?: string }) {
+    const res = await api.post('/shifts', {
+      cast_id:    data.castId,
+      date:       data.date,
+      start_time: data.startTime,
+      end_time:   data.endTime,
+      note:       data.note ?? '',
+    })
+    const shift = toShift(res.data)
+    shifts.value = shifts.value.filter(s => !(s.castId === shift.castId && s.date === shift.date))
+    shifts.value.push(shift)
   }
 
-  function update(id: number, data: Omit<Shift, 'id'>) {
-    const s = shifts.value.find(s => s.id === id)
-    if (s) Object.assign(s, data)
+  async function update(id: number, data: Partial<Omit<Shift, 'id'>>) {
+    const payload: Record<string, any> = {}
+    if (data.startTime  !== undefined) payload.start_time  = data.startTime
+    if (data.endTime    !== undefined) payload.end_time    = data.endTime
+    if (data.status     !== undefined) payload.status      = data.status
+    if (data.absentNote !== undefined) payload.absent_note = data.absentNote || null
+    if (data.note       !== undefined) payload.note        = data.note
+    const res = await api.put(`/shifts/${id}`, payload)
+    const idx = shifts.value.findIndex(s => s.id === id)
+    if (idx !== -1) shifts.value[idx] = toShift(res.data)
   }
 
-  function markAbsent(id: number, reason: ShiftStatus, absentNote: string) {
-    const s = shifts.value.find(s => s.id === id)
-    if (s) { s.status = reason; s.absentNote = absentNote }
+  async function markAbsent(id: number, reason: ShiftStatus, absentNote: string) {
+    await update(id, { status: reason, absentNote })
   }
 
-  // 指定日以降の同キャストのシフトをすべて欠勤にする
-  function markAbsentFromDate(castId: number, fromDate: string, reason: ShiftStatus, absentNote: string) {
+  async function markAbsentFromDate(castId: number, fromDate: string, reason: ShiftStatus, absentNote: string) {
+    await api.post('/shifts/absent-from', {
+      cast_id:     castId,
+      from_date:   fromDate,
+      status:      reason,
+      absent_note: absentNote,
+    })
     shifts.value
       .filter(s => s.castId === castId && s.date >= fromDate)
       .forEach(s => { s.status = reason; s.absentNote = absentNote })
   }
 
-  function cancelAbsent(id: number) {
-    const s = shifts.value.find(s => s.id === id)
-    if (s) { s.status = '出勤予定'; s.absentNote = '' }
+  async function cancelAbsent(id: number) {
+    await update(id, { status: '出勤予定', absentNote: '' })
   }
 
-  // 指定日以降の同キャストの欠勤をすべて出勤予定に戻す
-  function cancelAbsentFromDate(castId: number, fromDate: string) {
-    shifts.value
-      .filter(s => s.castId === castId && s.date >= fromDate && s.status !== '出勤予定')
-      .forEach(s => { s.status = '出勤予定'; s.absentNote = '' })
+  async function cancelAbsentFromDate(castId: number, fromDate: string) {
+    const targets = shifts.value.filter(s => s.castId === castId && s.date >= fromDate && s.status !== '出勤予定')
+    await Promise.all(targets.map(s => api.put(`/shifts/${s.id}`, { status: '出勤予定', absent_note: null })))
+    targets.forEach(s => { s.status = '出勤予定'; s.absentNote = '' })
   }
 
-  function remove(id: number) {
+  async function bulkAdd(params: {
+    castId: number; startDate: string; endDate: string
+    dows: number[]; startTime: string; endTime: string
+    overwrite: boolean; note: string
+  }): Promise<number> {
+    const res = await api.post('/shifts/bulk', {
+      cast_id:    params.castId,
+      start_date: params.startDate,
+      end_date:   params.endDate,
+      dows:       params.dows,
+      start_time: params.startTime,
+      end_time:   params.endTime,
+      overwrite:  params.overwrite,
+      note:       params.note,
+    })
+    return res.data.registered
+  }
+
+  async function remove(id: number) {
+    await api.delete(`/shifts/${id}`)
     shifts.value = shifts.value.filter(s => s.id !== id)
   }
 
-  return { shifts, getByDate, getByCastAndDate, getCastIdsByDate, getAllCastIdsByDate, add, update, markAbsent, markAbsentFromDate, cancelAbsent, cancelAbsentFromDate, remove }
+  return {
+    shifts,
+    fetchRange, fetchDate,
+    getByDate, getByCastAndDate, getCastIdsByDate, getAllCastIdsByDate,
+    add, update, markAbsent, markAbsentFromDate,
+    cancelAbsent, cancelAbsentFromDate, bulkAdd, remove,
+  }
 })

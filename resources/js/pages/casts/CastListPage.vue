@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useCastsStore } from '@/stores/casts'
 import { useOptionsStore } from '@/stores/options'
 import { useRanksStore } from '@/stores/ranks'
@@ -7,6 +7,12 @@ import { useRanksStore } from '@/stores/ranks'
 const castsStore   = useCastsStore()
 const optionsStore = useOptionsStore()
 const ranksStore   = useRanksStore()
+
+onMounted(() => {
+  castsStore.fetchAll()
+  optionsStore.fetchAll()
+  ranksStore.fetchAll()
+})
 
 const statusColor: Record<string, string> = {
   '稼働中': 'bg-green-100 text-green-700',
@@ -40,8 +46,8 @@ function toggleNgOption(id: number) {
   if (idx === -1) tempNgIds.value.push(id)
   else tempNgIds.value.splice(idx, 1)
 }
-function saveNgOptions() {
-  if (editingCastId.value !== null) castsStore.updateNgOptions(editingCastId.value, tempNgIds.value)
+async function saveNgOptions() {
+  if (editingCastId.value !== null) await castsStore.updateNgOptions(editingCastId.value, tempNgIds.value)
   showNgModal.value = false
 }
 function getOptionName(id: number) {
@@ -60,8 +66,8 @@ function openRankModal(castId: number) {
   tempRankId.value = castsStore.casts.find(c => c.id === castId)?.rankId ?? null
   showRankModal.value = true
 }
-function saveRank() {
-  if (rankCastId.value !== null) castsStore.updateRank(rankCastId.value, tempRankId.value)
+async function saveRank() {
+  if (rankCastId.value !== null) await castsStore.updateRank(rankCastId.value, tempRankId.value)
   showRankModal.value = false
 }
 </script>

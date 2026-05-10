@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useCodewordsStore, type Codeword } from '@/stores/codewords'
 
 const store = useCodewordsStore()
+
+onMounted(() => store.fetchAll())
 
 // ─── モーダル ─────────────────────────────────────────
 type ModalMode = 'add' | 'edit'
@@ -34,12 +36,12 @@ function openEdit(c: Codeword) {
   showModal.value = true
 }
 
-function saveModal() {
+async function saveModal() {
   if (!form.value.siteName || !form.value.word) return
   if (modalMode.value === 'add') {
-    store.add(form.value)
+    await store.add(form.value)
   } else if (editingId.value !== null) {
-    store.update(editingId.value, form.value)
+    await store.update(editingId.value, form.value)
   }
   showModal.value = false
 }

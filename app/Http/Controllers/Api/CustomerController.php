@@ -21,6 +21,8 @@ class CustomerController extends Controller
             $query->where('name', 'like', '%' . $request->name . '%');
         }
 
+        $query->withCount(['reservations as visit_count' => fn ($q) => $q->where('reservation_status', '確定')]);
+
         return $query->orderByDesc('updated_at')->paginate(30);
     }
 
